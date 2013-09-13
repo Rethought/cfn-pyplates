@@ -19,9 +19,10 @@ setup(
         'schema',
         'unittest2',
         'verlib',
+        'jinja2',
     ],
-    test_suite = 'cfn_pyplates.tests',
-    tests_require = ['mock'],
+    test_suite = 'nose.collector',
+    tests_require = ['mock', 'nose'],
     entry_points={
         'console_scripts': [
             'cfn_py_generate = cfn_pyplates.cli:generate',
