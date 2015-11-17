@@ -20,20 +20,6 @@ See also:
 '''
 import warnings
 
-try:
-    from verlib import NormalizedVersion
-    # Validates the version above, exposing the version parts for anyone
-    # that might want to make decisions based on a normalized version tuple
-    version_parts = NormalizedVersion(__version__).parts
-except ImportError:
-    verlib_errormsg = '''
-    Failed to import verlib, version_parts will not be available
-
-    This should only happen during install, before dependencies are evaluated
-    and installed.
-    '''
-    warnings.warn(verlib_errormsg, ImportWarning)
-
 # Protocol numbers, used in setting up security group rules as documented
 # in:
 # https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml
