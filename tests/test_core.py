@@ -9,25 +9,17 @@
 #
 # The above copyright notice and this permission notice shall be included in
 # all copies or substantial portions of the Software.
-
-from cStringIO import StringIO
+import json
+import unittest
 from textwrap import dedent
 from tempfile import NamedTemporaryFile
-import json
-import sys
 
-import unittest2 as unittest
+from cfn_pyplates import core
 
-from cfn_pyplates import cli, core, exceptions, functions
 
-try:
-    from mock import patch
-    mock_error = None
-except ImportError:
-    patch = None
-    mock_error = 'skipped -- install mock to run this test'
+class TestResource(core.JSONableDict):
+    pass
 
-class TestResource(core.JSONableDict): pass
 
 class JSONableDictTestCase(unittest.TestCase):
     def test_crazy_addchild_ordering(self):
@@ -253,87 +245,72 @@ class ResourcesTestCase(unittest.TestCase):
         }''')
         self.assertEqual(unicode(cft.resources.test), expected_out)
 
+    def test_resource_with_condition(self):
+        condition = core.Condition('TestCondition', {'Fn::Fake': 'ConditionValue'})
+        res = core.Resource('TestResource', 'AWS::Resource::Test', None, condition)
+        cft = core.CloudFormationTemplate()
+        cft.resources.test = res
 
-class IntrinsicFuncsTestCase(unittest.TestCase):
-    def test_base64(self):
-        ret = functions.base64('test')
-        self.assertEqual(ret['Fn::Base64'], 'test')
-
-    def test_find_in_map(self):
-        ret = functions.find_in_map('MapName', 'MapKey', 'MapValue')
-        self.assertEqual(ret['Fn::FindInMap'], ['MapName', 'MapKey', 'MapValue'])
-
-    def test_get_att(self):
-        ret = functions.get_att('ThingName', 'AttrName')
-        self.assertEqual(ret['Fn::GetAtt'], ['ThingName', 'AttrName'])
-
-    def test_get_azs(self):
-        ret = functions.get_azs('region')
-        self.assertEqual(ret['Fn::GetAZs'], 'region')
-
-    def test_join(self):
-        ret = functions.join('.', 'x', 'y', 'z')
-        self.assertEqual(ret['Fn::Join'], ['.', ['x', 'y', 'z']])
-
-    def test_select(self):
-        ret = functions.select(3, 1, 2, 3, 4, 5)
-        self.assertEqual(ret['Fn::Select'], [3, [1, 2, 3, 4, 5]])
-
-    def test_ref(self):
-        ret = functions.ref('ThingName')
-        self.assertEqual(ret['Ref'], 'ThingName')
+        # The output should have the metadata attached
+        expected_out = dedent(u'''\
+        {
+          "Type": "AWS::Resource::Test",
+          "Condition": "TestCondition"
+        }''')
+        self.assertEqual(unicode(cft.resources.test), expected_out)
 
 
-class IntrinsicFuncsFailureCase(unittest.TestCase):
-    def test_join_unjoinable(self):
-        with self.assertRaises(exceptions.IntrinsicFuncInputError) as ctx:
-            functions.join('.')
-            self.assertEqual(ctx.exception.message,
-                functions.join._errmsg_needinput)
+class ConditionsTestCase(unittest.TestCase):
+    def test_condition(self):
+        cft = core.CloudFormationTemplate()
+        cft.conditions.test = core.Condition('TestCondition', {'Fn::Fake': 'ConditionValue'})
 
-        with self.assertRaises(exceptions.IntrinsicFuncInputError) as ctx:
-            functions.join('.', 'x')
-            self.assertEqual(ctx.exception.message,
-                functions.join._errmsg_needinput)
+        # Should have a new 'TestCondition' key in our template resources
+        self.assertIn('TestCondition', cft.conditions)
 
-    def test_select_int(self):
-        with self.assertRaises(exceptions.IntrinsicFuncInputError) as ctx:
-            functions.select('not an int')
-            self.assertEqual(ctx.exception.message,
-                functions.select._errmsg_int)
+        # And it should look like this...
+        expected_out = dedent(u'''\
+        {
+          "Fn::Fake": "ConditionValue"
+        }''')
+        self.assertEqual(unicode(cft.conditions.test), expected_out)
 
-    def test_select_empty(self):
-        with self.assertRaises(exceptions.IntrinsicFuncInputError) as ctx:
-            functions.select(0)
-            self.assertEqual(ctx.exception.message,
-                functions.select._errmsg_empty)
+    def test_condition_ref(self):
+        cft = core.CloudFormationTemplate()
+        cft.conditions.test = core.Condition('TestCondition', {'Ref': 'ReferencedThing'})
 
-    def test_select_null(self):
-        with self.assertRaises(exceptions.IntrinsicFuncInputError) as ctx:
-            functions.select(0, '', None)
-            self.assertEqual(ctx.exception.message,
-                functions.select._errmsg_null)
-
-    def test_select_index(self):
-        with self.assertRaises(exceptions.IntrinsicFuncInputError) as ctx:
-            functions.select(2, '', '')
-            self.assertEqual(ctx.exception.message,
-                functions.select._errmsg_index)
+        # And it should look like this...
+        expected_out = dedent(u'''\
+        {
+          "Ref": "ReferencedThing"
+        }''')
+        self.assertEqual(unicode(cft.conditions.test), expected_out)
 
 
 class MiscElementsTestCase(unittest.TestCase):
-    def setUp(self):
-        mapping_a = core.Mapping('MappingKey',
-                                 {'keya': 'valuea',
-                                  'keyb': 'valueb'})
+    def test_mapping_element(self):
+        mappings = core.Mappings()
 
-        mapping_b = core.Mapping('MappingKeyBee',
-                                 {'key1': 'value1',
-                                  'key2': 'value2'})
+        mapping_letters = core.Mapping('MappingKeyLetters',
+            {
+                'keya': 'valuea',
+                'keyb': 'valueb'
+            }
+        )
+        mapping_numbers = core.Mapping('MappingKeyNumbers',
+            {
+                'key1': 'value1',
+                'key2': 'value2'
+            }
+        )
 
-        self.cft = core.CloudFormationTemplate('This is a test')
-        self.cft.mappings.add(mapping_a)
-        self.cft.mappings.add(mapping_b)
+        mappings.add(mapping_letters)
+        mappings.add(mapping_numbers)
+
+        self.assertEqual(mappings['MappingKeyLetters']['keya'], 'valuea')
+        self.assertEqual(mappings['MappingKeyLetters']['keyb'], 'valueb')
+        self.assertEqual(mappings['MappingKeyNumbers']['key1'], 'value1')
+        self.assertEqual(mappings['MappingKeyNumbers']['key2'], 'value2')
 
     def test_resource_element(self):
         resource = core.Resource('ResourceName',
@@ -365,32 +342,14 @@ class MiscElementsTestCase(unittest.TestCase):
         self.assertEqual(resource['Properties']['Key1'], 'Value1')
         self.assertEqual(resource['Properties']['Key2'], 'Value2')
 
-
     def test_parameter_element(self):
         parameter = core.Parameter('ParameterName',
             'String',
             {'Key': 'Value'})
 
-    def test_add_mapping(self):
-        self.assertEqual(self.cft.mappings['MappingKey']['keyb'], 'valueb')
-        self.assertEqual(self.cft.mappings['MappingKeyBee']['key1'], 'value1')
-
-    def test_render_mapping(self):
-        expected = """{
-  "AWSTemplateFormatVersion": "2010-09-09",
-  "Description": "This is a test",
-  "Mappings": {
-    "MappingKey": {
-      "keyb": "valueb",
-      "keya": "valuea"
-    },
-    "MappingKeyBee": {
-      "key2": "value2",
-      "key1": "value1"
-    }
-  }
-}"""
-        self.assertEquals(dedent(unicode(self.cft)), expected)
+        self.assertEqual(parameter.name, 'ParameterName')
+        self.assertEqual(parameter['Type'], 'String')
+        self.assertEqual(parameter['Key'], 'Value')
 
     def test_output_element(self):
         output = core.Output('OutputName',
@@ -414,91 +373,18 @@ class MiscElementsTestCase(unittest.TestCase):
                 self.assertEqual(entry['Value'], 'TestValue2')
 
 
-@unittest.skipIf(patch is None, mock_error)
-class CLITestCase(unittest.TestCase):
-    def setUp(self):
-        # Patch out argv, stdin, and stdout so that we can do some
-        # useful things, like:
-        # - Fake arguments to be used by a CLI function
-        # - Write to stding, simulating user input
-        # - Suppress stdout to hide prompts during the test run
-        argv_patcher = patch('sys.argv')
-        argv_patcher.start()
-        self.addCleanup(argv_patcher.stop)
-        stdin_patcher = patch('sys.stdin', new=StringIO())
-        stdin_patcher.start()
-        self.addCleanup(stdin_patcher.stop)
-        stdout_patcher = patch('sys.stdout', new=StringIO())
-        stdout_patcher.start()
-        self.addCleanup(stdout_patcher.stop)
-
-    def test_generate(self):
+class GenerateTestCase(unittest.TestCase):
+    def test_callable_generate(self):
         # Make a pyplate that uses the options mapping
         pyplate_contents = dedent(u'''\
         cft = CloudFormationTemplate('This is a test')
         cft.parameters.update({
-            'Exists': options['ThisKeyExists'],
-            'DoesNotExist': options['ThisKeyDoesNotExist']
+            'Exists': options['ThisKeyExists']
         })''')
         pyplate = NamedTemporaryFile()
         pyplate.write(pyplate_contents)
         pyplate.flush()
 
-        # Now make an options mapping with only one of those keys in it
-        # to simultaneously test options interpolation and
-        # user-prompted input
-        options_mapping_contents = dedent(u'''\
-        {
-            'ThisKeyExists': true
-        }
-        ''')
-        options_mapping = NamedTemporaryFile()
-        options_mapping.write(options_mapping_contents)
-        options_mapping.flush()
-
-        # The outfile which will receive the rendered json
-        outfile = NamedTemporaryFile()
-
-        # Populate sys.argv with something reasonable based on all the
-        # tempfiles. On the command line this would look like
-        # "cfn_py_generate pyplate outfile -o options_mapping"
-        sys.argv = ['cfn_py_generate', pyplate.name, outfile.name,
-            '-o', options_mapping.name]
-        # Prime stdin with the answer to our interactive question
-        input = 'Test'
-        sys.stdin.write('{0}\n'.format(input))
-        sys.stdin.seek(0)
-
-        # Run the command, catch it if it tries to exit the interpreter
-        return_code = cli.generate()
-        if return_code != 0:
-            sys.stdout.seek(0)
-            message = sys.stdout.read()
-            self.fail('generate failed, stdout dump follows:\n{0}'.format(
-                message)
-            )
-
-        expected_output = dedent(u'''\
-        {
-          "AWSTemplateFormatVersion": "2010-09-09",
-          "Description": "This is a test",
-          "Parameters": {
-            "DoesNotExist": "this is a test",
-            "Exists": true
-        }
-        ''')
-
-        # Load the output back into python for assertions
-        output = json.load(outfile)
-
-        # The Exists parameter should evaluate to bool True...
-        # If so, then options_mapping interpolation works
+        # call generate directly with an options mapping, no CLI
+        output = json.loads(core.generate_pyplate(pyplate.name, {'ThisKeyExists': True}))
         self.assertTrue(output['Parameters']['Exists'])
-
-        # The DoesNotExist parameter should be what was injected to stdin
-        # If so, then prompts to populate missing options_mapping entries work
-        self.assertEqual(output['Parameters']['DoesNotExist'], input)
-
-if __name__ == '__main__':
-    unittest.main()
-

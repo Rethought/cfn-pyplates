@@ -18,11 +18,6 @@ See also:
 - https://cfn-pyplates.readthedocs.org/ (you might already be here)
 - https://github.com/seandst/cfn-pyplates/
 '''
-
-# Friendly PEP-386 version string
-# The fourth number used for third-party fork versions
-__version__ = '0.2.1.1'
-
 import warnings
 
 try:
@@ -187,3 +182,5 @@ PROTOCOLS = {
     'manet': '138'
 }
 
+# inject modules into the cfn_pyplates namespace
+from cfn_pyplates import cli, core, exceptions, functions, options  # NOQA
